@@ -7,6 +7,10 @@ when defined(windows):
   type
     PipeFd* = distinct Handle
 
+  when not declared(PCustomOverlapped):
+    type
+      PCustomOverlapped = CustomRef
+
   proc QueryPerformanceCounter(res: var int64)
         {.importc: "QueryPerformanceCounter", stdcall, dynlib: "kernel32".}
   proc connectNamedPipe(hNamedPipe: Handle, lpOverlapped: pointer): WINBOOL
@@ -94,7 +98,7 @@ when defined(windows):
       raiseOsError(osLastError())
 
   proc readInto*(pipeFd: PipeFd, data: pointer, nbytes: int): Future[int] =
-    let pipeFd = PipeFd.Handle
+    let pipeFd = pipeFd.Handle
     var retFuture = newFuture[int]()
     var ol = PCustomOverlapped()
 
