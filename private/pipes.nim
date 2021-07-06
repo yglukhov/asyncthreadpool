@@ -1,15 +1,24 @@
-import asyncdispatch, os
-
+import os
+when not defined(ChronosAsync):
+  import asyncdispatch
+else:
+  import chronos
 # This code is stripped down (and specialized) version of https://github.com/cheatfate/asynctools/blob/master/asynctools/asyncpipe.nim
 
 when defined(windows):
   import winlean
   type
     PipeFd* = distinct Handle
-
+  when not declared(CustomOverlapped):
+    type
+      CustomOverlapped = object of OVERLAPPED
+        data*: CompletionData
   when not declared(PCustomOverlapped):
     type
-      PCustomOverlapped = CustomRef
+      PCustomOverlapped = ref CustomOverlapped
+  when not declared(PtrCustomOverlapped):
+    type 
+      PtrCustomOverlapped = ptr CustomOverlapped
 
   proc QueryPerformanceCounter(res: var int64)
         {.importc: "QueryPerformanceCounter", stdcall, dynlib: "kernel32".}
@@ -103,19 +112,39 @@ when defined(windows):
     var ol = PCustomOverlapped()
 
     GC_ref(ol)
-    ol.data = CompletionData(fd: AsyncFD(pipeFd), cb:
-      proc (fd: AsyncFD, bytesCount: DWord, errcode: OSErrorCode) =
-        if not retFuture.finished:
-          if errcode == OSErrorCode(-1):
-            assert(bytesCount > 0 and bytesCount <= nbytes.int32)
-            retFuture.complete(bytesCount)
-          else:
-            if errcode.int32 in {ERROR_BROKEN_PIPE,
-                                  ERROR_PIPE_NOT_CONNECTED}:
+    when not defined(ChronosAsync):
+      ol.data = CompletionData(fd: AsyncFD(pipeFd), cb:
+        proc (fd: AsyncFD, bytesCount: DWord, errcode: OSErrorCode) =
+          if not retFuture.finished:
+            if errcode == OSErrorCode(-1):
+              assert(bytesCount > 0 and bytesCount <= nbytes.int32)
               retFuture.complete(bytesCount)
             else:
-              retFuture.fail(newException(OSError, osErrorMsg(errcode)))
-    )
+              if errcode.int32 in {ERROR_BROKEN_PIPE,
+                                    ERROR_PIPE_NOT_CONNECTED}:
+                retFuture.complete(bytesCount)
+              else:
+                retFuture.fail(newException(OSError, osErrorMsg(errcode)))
+      )
+    else:
+      ol.data = CompletionData(fd: AsyncFD(pipeFd), cb:
+        proc (udata:pointer) =
+          var ovl = cast[PtrCustomOverlapped](udata)
+          var fd = ovl.data.fd
+          var bytesCount = ovl.data.bytesCount
+          var errcode = ovl.data.errCode
+          if not retFuture.finished:
+            if errcode == OSErrorCode(-1):
+              assert(bytesCount > 0 and bytesCount <= nbytes.int32)
+              retFuture.complete(bytesCount)
+            else:
+              if errcode.int32 in {ERROR_BROKEN_PIPE,
+                                    ERROR_PIPE_NOT_CONNECTED}:
+                retFuture.complete(bytesCount)
+              else:
+                retFuture.fail(newException(OSError, osErrorMsg(errcode)))
+      )
+
     let res = readFile(pipeFd, data, nbytes.int32, nil,
                         cast[POVERLAPPED](ol)).bool
     if not res:
@@ -161,20 +190,37 @@ else:
   proc readInto*(pipeFd: PipeFd, data: pointer, nbytes: int): Future[int] =
     let pipeFd = pipeFd.cint
     var retFuture = newFuture[int]()
-    proc cb(fd: AsyncFD): bool =
-      result = true
-      let res = posix.read(pipeFd, data, cint(nbytes))
-      if res < 0:
-        let err = osLastError()
-        if err.int32 != EAGAIN:
-          retFuture.fail(newException(OSError, osErrorMsg(err)))
+    when not defined(ChronosAsync):
+      proc cb(fd: AsyncFD): bool =
+        result = true
+        let res = posix.read(pipeFd, data, cint(nbytes))
+        if res < 0:
+          let err = osLastError()
+          if err.int32 != EAGAIN:
+            retFuture.fail(newException(OSError, osErrorMsg(err)))
+          else:
+            result = false # We still want this callback to be called.
+        elif res == 0:
+          retFuture.complete(0)
         else:
-          result = false # We still want this callback to be called.
-      elif res == 0:
-        retFuture.complete(0)
-      else:
-        retFuture.complete(res)
-
-    if not cb(AsyncFD(pipeFd)):
-      addRead(AsyncFD(pipeFd), cb)
+          retFuture.complete(res)
+    else:
+      proc cb(udata: pointer): void =
+        var ovl = cast[ptr CompletionData](udata)
+        var fd = ovl.udata
+        let res = posix.read(pipeFd, data, cint(nbytes))
+        if res < 0:
+          let err = osLastError()
+          if err.int32 != EAGAIN:
+            retFuture.fail(newException(OSError, osErrorMsg(err)))
+        elif res == 0:
+          retFuture.complete(0)
+        else:
+          retFuture.complete(res)
+    
+    when not defined(ChronosAsync):
+      if not cb(AsyncFD(pipeFd)):
+        addRead(AsyncFD(pipeFd), cb)
+    else:
+      addReader(AsyncFD(pipeFd), cb, data)
     return retFuture

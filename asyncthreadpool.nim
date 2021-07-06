@@ -1,5 +1,10 @@
-import macros, cpuinfo, asyncdispatch
+import macros, cpuinfo
 import ./private/pipes
+
+when not defined(ChronosAsync):
+  import asyncdispatch
+else:
+  import chronos
 
 when not compileOption("threads"):
   {.error: "ThreadPool requires --threads:on compiler option".}
@@ -48,7 +53,7 @@ proc finalizeAux(tp: ThreadPoolBase) =
     tp.cleanupAux()
   tp.chanTo.close()
   tp.chanFrom.close()
-  asyncdispatch.unregister(tp.notifPipeR.AsyncFD)
+  unregister(tp.notifPipeR.AsyncFD)
   tp.notifPipeR.close()
   tp.notifPipeW.close()
 
@@ -135,7 +140,10 @@ proc sendErrorBack[T](e: ref Exception, notifPipeW: PipeFd, c: ChannelFromPtr, f
   var msg: MsgFrom
   msg.writeResult = proc() =
     let fut = cast[Future[T]](fut)
-    fut.fail(e)
+    when not defined(ChronosAsync):
+      fut.fail(e)
+    else:
+      fut.fail(cast[ref CatchableError](e))
     GC_unref(fut)
   c[].send(msg)
   notifyDataAvailable(notifPipeW)

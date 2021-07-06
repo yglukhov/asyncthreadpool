@@ -9,3 +9,4 @@ license       = "MIT"
 # Dependencies
 
 requires "nim >= 1.4.2"
+requires "chronos"

@@ -1,4 +1,8 @@
-import asyncthreadpool, asyncdispatch
+import asyncthreadpool
+when not defined(ChronosAsync):
+  import asyncdispatch
+else:
+  import chronos
 type MyContext = int
 proc myTask(a, b: int, ctx: var MyContext): int =
   inc ctx
