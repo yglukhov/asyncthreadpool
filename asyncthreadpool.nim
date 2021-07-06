@@ -43,16 +43,9 @@ proc cleanupAux(tp: ThreadPoolBase) =
     tp.chanTo.send(msg)
   joinThreads(tp.threads)
 
-# XXX: Do the GC_ref GC_unref correctly.
-proc sync*(tp: ThreadPoolBase) =
-  if tp.threads.len != 0:
-    tp.cleanupAux()
-    tp.threads.setLen(0)
-
 proc finalizeAux(tp: ThreadPoolBase) =
   if tp.threads.len != 0:
     tp.cleanupAux()
-    GC_unref(tp.threads)
   tp.chanTo.close()
   tp.chanFrom.close()
   asyncdispatch.unregister(tp.notifPipeR.AsyncFD)
@@ -76,11 +69,7 @@ proc threadProc[TThreadContext](args: ThreadProcArgs) {.thread.} =
 
 proc startThreads(tp: ThreadPoolBase, threadProc: proc(args: ThreadProcArgs) {.thread.}) =
   assert(tp.threads.len == 0)
-  if tp.threads.len == 0:
-    tp.threads = newSeq[ThreadType](tp.maxThreads)
-    GC_ref(tp.threads)
-  else:
-    tp.threads.setLen(tp.maxThreads)
+  tp.threads.setLen(tp.maxThreads)
 
   var args = ThreadProcArgs(chanTo: addr tp.chanTo, chanFrom: addr tp.chanFrom, notifPipeW: tp.notifPipeW)
   for i in 0 ..< tp.maxThreads:
@@ -115,12 +104,14 @@ proc dispatchLoop(tp: ThreadPoolBase) {.async.} =
     if m.dataAvailable:
       m.msg.writeResult()
       dec tp.pendingJobs
+  GC_unref(tp)
 
 proc dispatchMessage(tp: ThreadPoolBase, m: MsgTo, threadProc: proc(args: ThreadProcArgs) {.thread.}) =
   if tp.threads.len == 0:
     tp.startThreads(threadProc)
   inc tp.pendingJobs
   if tp.pendingJobs == 1:
+    GC_ref(tp)
     asyncCheck dispatchLoop(tp)
   tp.chanTo.send(m)
 
@@ -211,9 +202,4 @@ template spawn*[TThreadContext](tp: ContextThreadPool[TThreadContext], e: untype
     fut
 
 template spawn*(e: untyped{nkCall | nkCommand}): untyped =
-  block:
-    let tp = newSerialThreadPool()
-    let f = spawn(tp, e)
-    f.addCallback() do():
-      tp.sync()
-    f
+  spawn(newSerialThreadPool(), e)

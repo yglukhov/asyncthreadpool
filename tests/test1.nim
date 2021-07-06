@@ -29,8 +29,6 @@ proc test() {.async.} =
       doAssert(20 == await t.spawn intProc(10, 10, 10))
       doAssert(10 == await t.spawn intProc(5, 5, 10))
 
-    t.sync()
-
   block: # Pool-less spawn
     doAssert(20 == await spawn intProc(10, 10, 10))
 
@@ -39,6 +37,5 @@ proc test() {.async.} =
     doAssert(1 == await t.spawn incCtx(threadContext, 1))
     doAssert(3 == await t.spawn incCtx(threadContext, 2))
     await t.spawn chkCtx(threadContext, 3)
-    t.sync()
 
 waitFor test()
