@@ -131,6 +131,15 @@ proc sendBack[T](v: T, notifPipeW: PipeFd, c: ChannelFromPtr, fut: pointer) {.gc
   c[].send(msg)
   notifyDataAvailable(notifPipeW)
 
+proc sendErrorBack[T](e: ref Exception, notifPipeW: PipeFd, c: ChannelFromPtr, fut: pointer) {.gcsafe.} =
+  var msg: MsgFrom
+  msg.writeResult = proc() =
+    let fut = cast[Future[T]](fut)
+    fut.fail(e)
+    GC_unref(fut)
+  c[].send(msg)
+  notifyDataAvailable(notifPipeW)
+
 const threadContextArgName = "threadContext"
 
 macro partial(e: untyped, TThreadContext: typed): untyped =
@@ -193,7 +202,11 @@ template spawn*[TThreadContext](tp: ContextThreadPool[TThreadContext], e: untype
     proc setup(m: var MsgTo, pe: proc) {.inline, nimcall.} =
       setAction(m) do(fut, threadCtxPtr: pointer, notifPipeW: PipeFd, chanFrom: ChannelFromPtr):
         template threadContext: TThreadContext  = cast[ptr TThreadContext](threadCtxPtr)[]
-        sendBack(pe(threadContext), notifPipeW, chanFrom, fut)
+        try:
+          sendBack(pe(threadContext), notifPipeW, chanFrom, fut)
+        except Exception as err:
+          sendErrorBack[RetType](err, notifPipeW, chanFrom, fut)
+
     setup(m, partial(e, TThreadContext))
     let fut = newFuture[RetType]()
     m.fut = cast[pointer](fut)

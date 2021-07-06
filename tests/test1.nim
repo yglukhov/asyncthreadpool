@@ -1,4 +1,4 @@
-import asyncthreadpool, asyncdispatch, os
+import asyncthreadpool, asyncdispatch, os, strutils
 
 proc intProc(a, b: int, sl: int): int =
   sleep(sl)
@@ -13,6 +13,9 @@ proc incCtx(ctx: var int, byValue: int): int =
 
 proc chkCtx(ctx, withValue: int) =
   doAssert(ctx == withValue)
+
+proc raiseErrorTask() =
+  raise newException(ValueError, "Test exception")
 
 proc test() {.async.} =
   block:
@@ -37,5 +40,16 @@ proc test() {.async.} =
     doAssert(1 == await t.spawn incCtx(threadContext, 1))
     doAssert(3 == await t.spawn incCtx(threadContext, 2))
     await t.spawn chkCtx(threadContext, 3)
+
+  block: # Exceptions
+    let t = newThreadPool()
+    let f = t.spawn raiseErrorTask()
+    var ok = false
+    try:
+      await f
+    except ValueError as e:
+      ok = true
+      doAssert("Test exception" in e.msg)
+    doAssert(ok)
 
 waitFor test()
