@@ -1,4 +1,3 @@
-
 import asyncthreadpool, asyncdispatch, os
 
 proc intProc(a, b: int, sl: int): int =
