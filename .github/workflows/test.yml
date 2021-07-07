@@ -4,6 +4,7 @@ on: [push]
 jobs:
   Test:
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
         nim-channel: [stable, devel]
