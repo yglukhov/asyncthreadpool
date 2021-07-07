@@ -3,8 +3,10 @@ import ./private/pipes
 
 when not defined(ChronosAsync):
   import asyncdispatch
+  type BaseExceptionType = Exception
 else:
   import chronos
+  type BaseExceptionType = CatchableError
 
 when not compileOption("threads"):
   {.error: "ThreadPool requires --threads:on compiler option".}
@@ -136,14 +138,11 @@ proc sendBack[T](v: T, notifPipeW: PipeFd, c: ChannelFromPtr, fut: pointer) {.gc
   c[].send(msg)
   notifyDataAvailable(notifPipeW)
 
-proc sendErrorBack[T](e: ref Exception, notifPipeW: PipeFd, c: ChannelFromPtr, fut: pointer) {.gcsafe.} =
+proc sendErrorBack[T](e: ref BaseExceptionType, notifPipeW: PipeFd, c: ChannelFromPtr, fut: pointer) {.gcsafe.} =
   var msg: MsgFrom
   msg.writeResult = proc() =
     let fut = cast[Future[T]](fut)
-    when not defined(ChronosAsync):
-      fut.fail(e)
-    else:
-      fut.fail(cast[ref CatchableError](e))
+    fut.fail(e)
     GC_unref(fut)
   c[].send(msg)
   notifyDataAvailable(notifPipeW)
@@ -212,7 +211,7 @@ template spawn*[TThreadContext](tp: ContextThreadPool[TThreadContext], e: untype
         template threadContext: TThreadContext  = cast[ptr TThreadContext](threadCtxPtr)[]
         try:
           sendBack(pe(threadContext), notifPipeW, chanFrom, fut)
-        except Exception as err:
+        except BaseExceptionType as err:
           sendErrorBack[RetType](err, notifPipeW, chanFrom, fut)
 
     setup(m, partial(e, TThreadContext))
