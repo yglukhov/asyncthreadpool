@@ -1,2 +1,2 @@
-switch("path", "$projectDir/..")
+switch("path", "../src")
 --threads:on
