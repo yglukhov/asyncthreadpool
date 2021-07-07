@@ -1,5 +1,8 @@
-import asyncthreadpool, asyncdispatch, os, strutils
-
+import asyncthreadpool, os, strutils
+when not defined(ChronosAsync):
+  import asyncdispatch
+else:
+  import chronos
 proc intProc(a, b: int, sl: int): int =
   sleep(sl)
   a + b

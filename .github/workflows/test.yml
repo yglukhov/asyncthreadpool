@@ -4,23 +4,32 @@ on: [push]
 jobs:
   Test:
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
         nim-channel: [stable, devel]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
-    - name: Prepare
-      shell: bash
+    - name: Setup nim
+      uses: jiro4989/setup-nim-action@v1
+      with:
+        nim-version: ${{ matrix.nim-channel }}
+    - name: Installation
       run: |
-        export CHOOSENIM_NO_ANALYTICS=1
-        curl https://nim-lang.org/choosenim/init.sh -sSf | sh -s -- -y
-        export PATH=$HOME/.nimble/bin:$PATH
-        choosenim ${{ matrix.nim-channel }}
-
+        nimble install -d -y
+    - name: Install slim
+      run: |
+        nimble install slim -y
     - name: Test
       shell: bash
       run: |
-        export PATH=$HOME/.nimble/bin:$PATH
         nim --version
-        nimble test
+        slim test
+    - name: Test with chronos
+      shell: bash
+      run: |
+        slim test -d:ChronosAsync
+    - name: Chronos strict exception check
+      run: |
+        slim c asyncthreadpool.nim --threads:on -d:ChronosAsync -d:chronosStrictException
