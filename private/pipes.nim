@@ -206,9 +206,9 @@ else:
           retFuture.complete(res)
     else:
       proc cb(udata: pointer): void =
-        var ovl = cast[ptr CompletionData](udata)
-        var fd = ovl.udata
-        let res = posix.read(pipeFd, data, cint(nbytes))
+        var cdata = cast[ptr CompletionData](udata)
+        var fd = cdata.fd
+        let res = posix.read(fd.cint, cdata.udata, cint(nbytes))
         if res < 0:
           let err = osLastError()
           if err.int32 != EAGAIN:
