@@ -26,3 +26,6 @@ jobs:
       shell: bash
       run: |
         nimble test -d:ChronosAsync
+    - name: Chronos strict exception check
+      run: |
+        nimble c asyncthreadpool.nim --threads:on -d:ChronosAsync -d:chronosStrictException
