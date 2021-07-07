@@ -9,4 +9,8 @@ license       = "MIT"
 # Dependencies
 
 requires "nim >= 1.4.2"
-requires "chronos"
+if getEnv("ASYNCTHREADPOOLS_WITH_CHRONOS") == "YES":
+  requires "chronos"
+
+before test:
+  requires "chronos"

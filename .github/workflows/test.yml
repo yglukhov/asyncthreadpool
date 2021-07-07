@@ -18,15 +18,18 @@ jobs:
     - name: Installation
       run: |
         nimble install -d -y
+    - name: Install slim
+      run: |
+        nimble install slim -y
     - name: Test
       shell: bash
       run: |
         nim --version
-        nimble test
+        slim test
     - name: Test with chronos
       shell: bash
       run: |
-        nimble test -d:ChronosAsync
+        slim test -d:ChronosAsync
     - name: Chronos strict exception check
       run: |
-        nimble c asyncthreadpool.nim --threads:on -d:ChronosAsync -d:chronosStrictException
+        slim c asyncthreadpool.nim --threads:on -d:ChronosAsync -d:chronosStrictException
