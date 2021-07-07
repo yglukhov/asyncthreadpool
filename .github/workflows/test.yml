@@ -17,19 +17,16 @@ jobs:
         nim-version: ${{ matrix.nim-channel }}
     - name: Installation
       run: |
-        nimble install -d -y
-    - name: Install slim
-      run: |
-        nimble install slim -y
+        nimble install -y chronos
     - name: Test
       shell: bash
       run: |
         nim --version
-        slim test
+        ASYNCTHREADPOOLS_WITH_CHRONOS=YES nimble test
     - name: Test with chronos
       shell: bash
       run: |
-        slim test -d:ChronosAsync
-    - name: Chronos strict exception check
-      run: |
-        slim c asyncthreadpool.nim --threads:on -d:ChronosAsync -d:chronosStrictException
+        ASYNCTHREADPOOLS_WITH_CHRONOS=YES nimble test -d:ChronosAsync
+    # - name: Chronos strict exception check
+    #   run: |
+    #     slim c asyncthreadpool.nim --threads:on -d:ChronosAsync -d:chronosStrictException
