@@ -1,5 +1,5 @@
 import macros, cpuinfo
-import ./private/pipes
+import ./asyncthreadpool/private/pipes
 
 when not defined(ChronosAsync):
   import asyncdispatch
