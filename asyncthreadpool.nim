@@ -12,7 +12,8 @@ when not compileOption("threads"):
   {.error: "ThreadPool requires --threads:on compiler option".}
 
 type
-  ThreadPoolBase {.inheritable, pure.} = ref object
+  ThreadPoolBase = ref ThreadPoolBaseObj
+  ThreadPoolBaseObj {.inheritable, pure.} = object
     chanTo: ChannelTo # Tasks are added to this channel
     chanFrom: ChannelFrom # Results are read from this channel
     threads: seq[ThreadType]
@@ -44,13 +45,13 @@ type
   ThreadType = Thread[ThreadProcArgs]
   EmptyThreadContext = int # This should be an empty tuple, but i don't know how to specify it
 
-proc cleanupAux(tp: ThreadPoolBase) =
+proc cleanupAux(tp: var ThreadPoolBaseObj) =
   var msg: MsgTo
   for i in 0 ..< tp.threads.len:
     tp.chanTo.send(msg)
   joinThreads(tp.threads)
 
-proc finalizeAux(tp: ThreadPoolBase) =
+proc finalizeAux(tp: var ThreadPoolBaseObj) =
   if tp.threads.len != 0:
     tp.cleanupAux()
   tp.chanTo.close()
@@ -59,8 +60,12 @@ proc finalizeAux(tp: ThreadPoolBase) =
   tp.notifPipeR.close()
   tp.notifPipeW.close()
 
-proc finalize[TThreadContext](tp: ContextThreadPool[TThreadContext]) =
-  finalizeAux(tp)
+when defined(gcDestructors):
+  proc `=destroy`(tp: var ThreadPoolBaseObj) =
+    finalizeAux(tp)
+else:
+  proc finalize[TThreadContext](tp: ContextThreadPool[TThreadContext]) =
+    finalizeAux(tp[])
 
 proc threadProcAux(args: ThreadProcArgs, threadContext: pointer) =
   while true:
@@ -84,7 +89,10 @@ proc startThreads(tp: ThreadPoolBase, threadProc: proc(args: ThreadProcArgs) {.t
     createThread(tp.threads[i], threadProc, args)
 
 proc newThreadPool*(TThreadContext: typedesc, maxThreads: int): ContextThreadPool[TThreadContext] =
-  result.new(finalize[TThreadContext])
+  when defined(gcDestructors):
+    result.new()
+  else:
+    result.new(finalize[TThreadContext])
   result.maxThreads = maxThreads
   result.chanTo.open()#maxMessages)
   result.chanFrom.open()
