@@ -68,7 +68,8 @@ proc threadProcAux(args: ThreadProcArgs, threadContext: pointer) =
     if m.action.isNil:
       break
     m.action(m.fut, threadContext, args.notifPipeW, args.chanFrom)
-  deallocHeap(true, false)
+  when not defined(gcDestructors):
+    deallocHeap(true, false)
 
 proc threadProc[TThreadContext](args: ThreadProcArgs) {.thread.} =
   var threadContext: TThreadContext
