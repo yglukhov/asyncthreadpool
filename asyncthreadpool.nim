@@ -63,6 +63,7 @@ proc finalizeAux(tp: var ThreadPoolBaseObj) =
 when defined(gcDestructors):
   proc `=destroy`(tp: var ThreadPoolBaseObj) =
     finalizeAux(tp)
+    `=destroy`(tp.threads)
 else:
   proc finalize[TThreadContext](tp: ContextThreadPool[TThreadContext]) =
     finalizeAux(tp[])
