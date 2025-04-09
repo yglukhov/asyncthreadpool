@@ -46,9 +46,8 @@ type
   EmptyThreadContext = int # This should be an empty tuple, but i don't know how to specify it
 
 proc cleanupAux(tp: var ThreadPoolBaseObj) =
-  var msg: MsgTo
   for i in 0 ..< tp.threads.len:
-    tp.chanTo.send(msg)
+    tp.chanTo.send(MsgTo())
   joinThreads(tp.threads)
 
 proc finalizeAux(tp: var ThreadPoolBaseObj) =
@@ -123,38 +122,44 @@ proc dispatchLoop(tp: ThreadPoolBase) {.async.} =
       dec tp.pendingJobs
   GC_unref(tp)
 
-proc dispatchMessage(tp: ThreadPoolBase, m: MsgTo, threadProc: proc(args: ThreadProcArgs) {.thread.}) =
+proc dispatchMessage(tp: ThreadPoolBase, m: sink MsgTo, threadProc: proc(args: ThreadProcArgs) {.thread.}) =
   if tp.threads.len == 0:
     tp.startThreads(threadProc)
   inc tp.pendingJobs
   if tp.pendingJobs == 1:
     GC_ref(tp)
     asyncCheck dispatchLoop(tp)
-  tp.chanTo.send(m)
+  tp.chanTo.send(ensureMove m)
 
 proc notifyDataAvailable(notifPipeW: PipeFd) =
   var dummy = 0'i8
   write(notifPipeW, addr dummy, sizeof(dummy))
 
-proc sendBack[T](v: T, notifPipeW: PipeFd, c: ChannelFromPtr, fut: pointer) {.gcsafe.} =
+proc sendBack[T: void](v: T, notifPipeW: PipeFd, c: ChannelFromPtr, fut: pointer) {.gcsafe.} =
   var msg: MsgFrom
   msg.writeResult = proc() =
     let fut = cast[Future[T]](fut)
-    when T is void:
-      fut.complete()
-    else:
-      fut.complete(v)
+    fut.complete()
     GC_unref(fut)
-  c[].send(msg)
+  c[].send(ensureMove msg)
   notifyDataAvailable(notifPipeW)
 
-proc sendErrorBack[T](e: ref BaseExceptionType, notifPipeW: PipeFd, c: ChannelFromPtr, fut: pointer) {.gcsafe.} =
+proc sendBack[T: not void](v: sink T, notifPipeW: PipeFd, c: ChannelFromPtr, fut: pointer) {.gcsafe.} =
+  var msg: MsgFrom
+  msg.writeResult = proc() =
+    let fut = cast[Future[T]](fut)
+    fut.complete(v)
+    GC_unref(fut)
+  c[].send(ensureMove msg)
+  notifyDataAvailable(notifPipeW)
+
+proc sendErrorBack[T](e: sink ref BaseExceptionType, notifPipeW: PipeFd, c: ChannelFromPtr, fut: pointer) {.gcsafe.} =
   var msg: MsgFrom
   msg.writeResult = proc() =
     let fut = cast[Future[T]](fut)
     fut.fail(e)
     GC_unref(fut)
-  c[].send(msg)
+  c[].send(ensureMove msg)
   notifyDataAvailable(notifPipeW)
 
 const threadContextArgName = "threadContext"
@@ -191,7 +196,7 @@ macro partial(e: untyped, TThreadContext: typed): untyped =
 
   # echo repr result
 
-proc setAction(m: var MsgTo, a: proc(fut, threadCtx: pointer, notifPipeW: PipeFd, chanFrom: ChannelFromPtr) {.gcsafe.}) {.inline.} =
+proc setAction(m: var MsgTo, a: sink proc(fut, threadCtx: pointer, notifPipeW: PipeFd, chanFrom: ChannelFromPtr) {.gcsafe.}) {.inline.} =
   m.action = a
 
 proc dummyThreadContext[TThreadContext](): var TThreadContext =
@@ -212,25 +217,27 @@ template expressionRetType(e: untyped): typedesc =
   else:
     void
 
+proc dispatchPartial[T, TThreadContext](tp: ContextThreadPool[TThreadContext], e: sink proc): Future[T] =
+  result = newFuture[T]()
+  GC_ref(result)
+  var m: MsgTo
+  m.fut = cast[pointer](result)
+  proc setup(m: var MsgTo, pe: sink proc) {.inline, nimcall.} =
+    setAction(m) do(fut, threadCtxPtr: pointer, notifPipeW: PipeFd, chanFrom: ChannelFromPtr):
+      template threadContext: TThreadContext = cast[ptr TThreadContext](threadCtxPtr)[]
+      try:
+        sendBack(ensureMove pe(threadContext), notifPipeW, chanFrom, fut)
+      except BaseExceptionType as err:
+        sendErrorBack[T](ensureMove err, notifPipeW, chanFrom, fut)
+
+  setup(m, ensureMove e)
+  tp.dispatchMessage(ensureMove m, threadProc[TThreadContext])
+
 template spawn*[TThreadContext](tp: ContextThreadPool[TThreadContext], e: untyped{nkCall | nkCommand}): untyped =
   block:
     type RetType = expressionRetType(getCallableResultType(e, TThreadContext))
-    var m: MsgTo
-    proc setup(m: var MsgTo, pe: proc) {.inline, nimcall.} =
-      setAction(m) do(fut, threadCtxPtr: pointer, notifPipeW: PipeFd, chanFrom: ChannelFromPtr):
-        template threadContext: TThreadContext  = cast[ptr TThreadContext](threadCtxPtr)[]
-        try:
-          sendBack(pe(threadContext), notifPipeW, chanFrom, fut)
-        except BaseExceptionType as err:
-          sendErrorBack[RetType](err, notifPipeW, chanFrom, fut)
-
-    setup(m, partial(e, TThreadContext))
-    let fut = newFuture[RetType]()
-    GC_ref(fut)
-    m.fut = cast[pointer](fut)
-    mixin dispatchMessage
-    tp.dispatchMessage(m, threadProc[TThreadContext])
-    fut
+    mixin dispatchPartial
+    dispatchPartial[RetType, TThreadContext](tp, partial(e, TThreadContext))
 
 template spawn*(e: untyped{nkCall | nkCommand}): untyped =
   spawn(newSerialThreadPool(), e)
