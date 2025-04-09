@@ -63,6 +63,7 @@ proc finalizeAux(tp: var ThreadPoolBaseObj) =
 when defined(gcDestructors):
   proc `=destroy`(tp: var ThreadPoolBaseObj) =
     finalizeAux(tp)
+    `=destroy`(tp.threads)
 else:
   proc finalize[TThreadContext](tp: ContextThreadPool[TThreadContext]) =
     finalizeAux(tp[])
@@ -225,6 +226,7 @@ template spawn*[TThreadContext](tp: ContextThreadPool[TThreadContext], e: untype
 
     setup(m, partial(e, TThreadContext))
     let fut = newFuture[RetType]()
+    GC_ref(fut)
     m.fut = cast[pointer](fut)
     mixin dispatchMessage
     tp.dispatchMessage(m, threadProc[TThreadContext])
