@@ -79,11 +79,7 @@ proc threadProcAux(args: ThreadProcArgs, threadContext: pointer) =
 
 proc threadProc[TThreadContext](args: ThreadProcArgs) {.thread.} =
   var threadContext: TThreadContext
-  try:
-    threadProcAux(args, addr threadContext)
-  except Exception:
-    echo "ERROR"
-    raise
+  threadProcAux(args, addr threadContext)
 
 proc startThreads(tp: ThreadPoolBase, threadProc: proc(args: ThreadProcArgs) {.thread.}) =
   assert(tp.threads.len == 0)
