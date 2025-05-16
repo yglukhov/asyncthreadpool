@@ -117,10 +117,9 @@ proc dispatchLoop(tp: ThreadPoolBase) {.async.} =
   while tp.pendingJobs != 0:
     var dummy: int8
     discard await readInto(tp.notifPipeR, addr dummy, sizeof(dummy))
-    let m = tp.chanFrom.tryRecv()
-    if m.dataAvailable:
-      m.msg.writeResult()
-      dec tp.pendingJobs
+    let m = tp.chanFrom.recv()
+    m.writeResult()
+    dec tp.pendingJobs
   GC_unref(tp)
 
 proc dispatchMessage(tp: ThreadPoolBase, m: MsgTo, threadProc: proc(args: ThreadProcArgs) {.thread.}) =
