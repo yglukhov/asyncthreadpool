@@ -79,7 +79,11 @@ proc threadProcAux(args: ThreadProcArgs, threadContext: pointer) =
 
 proc threadProc[TThreadContext](args: ThreadProcArgs) {.thread.} =
   var threadContext: TThreadContext
-  threadProcAux(args, addr threadContext)
+  try:
+    threadProcAux(args, addr threadContext)
+  except Exception:
+    echo "ERROR"
+    raise
 
 proc startThreads(tp: ThreadPoolBase, threadProc: proc(args: ThreadProcArgs) {.thread.}) =
   assert(tp.threads.len == 0)
@@ -117,10 +121,9 @@ proc dispatchLoop(tp: ThreadPoolBase) {.async.} =
   while tp.pendingJobs != 0:
     var dummy: int8
     discard await readInto(tp.notifPipeR, addr dummy, sizeof(dummy))
-    let m = tp.chanFrom.tryRecv()
-    if m.dataAvailable:
-      m.msg.writeResult()
-      dec tp.pendingJobs
+    let m = tp.chanFrom.recv()
+    m.writeResult()
+    dec tp.pendingJobs
   GC_unref(tp)
 
 proc dispatchMessage(tp: ThreadPoolBase, m: MsgTo, threadProc: proc(args: ThreadProcArgs) {.thread.}) =
